@@ -1,0 +1,258 @@
+"""
+性能检测模块 - PerformanceMonitor
+
+该模块用于监测模型推理过程中的各项性能指标，包括吞吐量、延迟等。
+"""
+
+import time
+import psutil
+import torch
+import numpy as np
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass, field
+from contextlib import contextmanager
+
+
+@dataclass
+class PerformanceMetrics:
+    """性能指标数据类"""
+    
+    # 延迟相关指标 (秒)
+    total_time: float = 0.0
+    avg_latency: float = 0.0
+    p50_latency: float = 0.0
+    p95_latency: float = 0.0
+    p99_latency: float = 0.0
+    
+    # 吞吐量指标
+    tokens_per_second: float = 0.0
+    requests_per_second: float = 0.0
+    
+    # 内存使用 (MB)
+    gpu_memory_used: float = 0.0
+    gpu_memory_peak: float = 0.0
+    cpu_memory_used: float = 0.0
+    
+    # 模型和硬件信息
+    model_name: str = ""
+    device_info: str = ""
+    batch_size: int = 0
+    sequence_length: int = 0
+    
+    # 原始数据
+    latencies: List[float] = field(default_factory=list)
+    token_counts: List[int] = field(default_factory=list)
+    
+    def calculate_derived_metrics(self):
+        """计算派生指标"""
+        if self.latencies:
+            self.avg_latency = np.mean(self.latencies)
+            self.p50_latency = np.percentile(self.latencies, 50)
+            self.p95_latency = np.percentile(self.latencies, 95)
+            self.p99_latency = np.percentile(self.latencies, 99)
+            
+            total_tokens = sum(self.token_counts)
+            if self.total_time > 0:
+                self.tokens_per_second = total_tokens / self.total_time
+                self.requests_per_second = len(self.latencies) / self.total_time
+
+
+class PerformanceMonitor:
+    """性能监测器"""
+    
+    def __init__(self):
+        self.reset()
+    
+    def reset(self):
+        """重置监测器"""
+        self.start_time = None
+        self.end_time = None
+        self.latencies = []
+        self.token_counts = []
+        self.gpu_memory_peak = 0.0
+        self.current_batch_start = None
+        
+        # GPU内存监测
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+    
+    @contextmanager
+    def measure_batch(self):
+        """测量单个批次的性能"""
+        self.current_batch_start = time.time()
+        
+        # 记录开始时的GPU内存
+        gpu_memory_start = 0.0
+        if torch.cuda.is_available():
+            gpu_memory_start = torch.cuda.memory_allocated() / 1024**2
+        
+        try:
+            yield
+        finally:
+            # 记录结束时间和内存
+            batch_time = time.time() - self.current_batch_start
+            self.latencies.append(batch_time)
+            
+            if torch.cuda.is_available():
+                current_memory = torch.cuda.memory_allocated() / 1024**2
+                peak_memory = torch.cuda.max_memory_allocated() / 1024**2
+                self.gpu_memory_peak = max(self.gpu_memory_peak, peak_memory)
+    
+    def start_monitoring(self):
+        """开始监测"""
+        self.start_time = time.time()
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+    
+    def stop_monitoring(self):
+        """停止监测"""
+        self.end_time = time.time()
+    
+    def add_token_count(self, count: int):
+        """添加token数量"""
+        self.token_counts.append(count)
+    
+    def get_metrics(self, model_name: str = "", batch_size: int = 0) -> PerformanceMetrics:
+        """获取性能指标"""
+        metrics = PerformanceMetrics()
+        
+        # 基本信息
+        metrics.model_name = model_name
+        metrics.batch_size = batch_size
+        metrics.device_info = self._get_device_info()
+        
+        # 时间相关
+        if self.start_time and self.end_time:
+            metrics.total_time = self.end_time - self.start_time
+        
+        # 原始数据
+        metrics.latencies = self.latencies.copy()
+        metrics.token_counts = self.token_counts.copy()
+        
+        # 内存使用
+        metrics.gpu_memory_peak = self.gpu_memory_peak
+        metrics.gpu_memory_used = self._get_current_gpu_memory()
+        metrics.cpu_memory_used = self._get_cpu_memory()
+        
+        # 计算派生指标
+        metrics.calculate_derived_metrics()
+        
+        return metrics
+    
+    def _get_device_info(self) -> str:
+        """获取设备信息"""
+        if torch.cuda.is_available():
+            device_name = torch.cuda.get_device_name(0)
+            device_count = torch.cuda.device_count()
+            return f"GPU: {device_name} (x{device_count})"
+        else:
+            return "CPU"
+    
+    def _get_current_gpu_memory(self) -> float:
+        """获取当前GPU内存使用 (MB)"""
+        if torch.cuda.is_available():
+            return torch.cuda.memory_allocated() / 1024**2
+        return 0.0
+    
+    def _get_cpu_memory(self) -> float:
+        """获取CPU内存使用 (MB)"""
+        process = psutil.Process()
+        return process.memory_info().rss / 1024**2
+    
+    def print_summary(self, metrics: PerformanceMetrics):
+        """打印性能摘要"""
+        print("\n" + "="*60)
+        print("性能测试摘要")
+        print("="*60)
+        print(f"模型: {metrics.model_name}")
+        print(f"设备: {metrics.device_info}")
+        print(f"批次大小: {metrics.batch_size}")
+        print(f"总请求数: {len(metrics.latencies)}")
+        print(f"总时间: {metrics.total_time:.2f}s")
+        print()
+        
+        print("延迟指标:")
+        print(f"  平均延迟: {metrics.avg_latency*1000:.2f}ms")
+        print(f"  P50延迟: {metrics.p50_latency*1000:.2f}ms")
+        print(f"  P95延迟: {metrics.p95_latency*1000:.2f}ms")
+        print(f"  P99延迟: {metrics.p99_latency*1000:.2f}ms")
+        print()
+        
+        print("吞吐量指标:")
+        print(f"  Tokens/秒: {metrics.tokens_per_second:.2f}")
+        print(f"  请求/秒: {metrics.requests_per_second:.2f}")
+        print()
+        
+        print("内存使用:")
+        print(f"  GPU内存峰值: {metrics.gpu_memory_peak:.2f}MB")
+        print(f"  GPU内存当前: {metrics.gpu_memory_used:.2f}MB")
+        print(f"  CPU内存: {metrics.cpu_memory_used:.2f}MB")
+        print("="*60)
+    
+    def save_detailed_report(self, metrics: PerformanceMetrics, filepath: str):
+        """保存详细报告"""
+        import json
+        
+        report = {
+            "model_info": {
+                "name": metrics.model_name,
+                "device": metrics.device_info,
+                "batch_size": metrics.batch_size
+            },
+            "timing": {
+                "total_time": metrics.total_time,
+                "avg_latency": metrics.avg_latency,
+                "p50_latency": metrics.p50_latency,
+                "p95_latency": metrics.p95_latency,
+                "p99_latency": metrics.p99_latency,
+                "latencies": metrics.latencies
+            },
+            "throughput": {
+                "tokens_per_second": metrics.tokens_per_second,
+                "requests_per_second": metrics.requests_per_second,
+                "token_counts": metrics.token_counts
+            },
+            "memory": {
+                "gpu_memory_peak": metrics.gpu_memory_peak,
+                "gpu_memory_used": metrics.gpu_memory_used,
+                "cpu_memory_used": metrics.cpu_memory_used
+            }
+        }
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2, ensure_ascii=False)
+        
+        print(f"详细报告已保存到: {filepath}")
+
+
+def compare_metrics(metrics1: PerformanceMetrics, metrics2: PerformanceMetrics, 
+                   name1: str = "方法1", name2: str = "方法2"):
+    """比较两个性能指标"""
+    print("\n" + "="*80)
+    print("性能对比")
+    print("="*80)
+    
+    print(f"{'指标':<20} {'方法1':<15} {'方法2':<15} {'提升':<15}")
+    print("-" * 80)
+    
+    # 延迟对比
+    latency_improvement = (metrics1.avg_latency - metrics2.avg_latency) / metrics1.avg_latency * 100
+    print(f"{'平均延迟(ms)':<20} {metrics1.avg_latency*1000:<15.2f} {metrics2.avg_latency*1000:<15.2f} {latency_improvement:<15.2f}%")
+    
+    # 吞吐量对比
+    throughput_improvement = (metrics2.tokens_per_second - metrics1.tokens_per_second) / metrics1.tokens_per_second * 100
+    print(f"{'吞吐量(tokens/s)':<20} {metrics1.tokens_per_second:<15.2f} {metrics2.tokens_per_second:<15.2f} {throughput_improvement:<15.2f}%")
+    
+    # 内存对比
+    memory_improvement = (metrics1.gpu_memory_peak - metrics2.gpu_memory_peak) / metrics1.gpu_memory_peak * 100
+    print(f"{'GPU内存峰值(MB)':<20} {metrics1.gpu_memory_peak:<15.2f} {metrics2.gpu_memory_peak:<15.2f} {memory_improvement:<15.2f}%")
+    
+    print("="*80)
+    
+    # 总结
+    if throughput_improvement > 0:
+        print(f"{name2} 在吞吐量方面比 {name1} 提升了 {throughput_improvement:.2f}%")
+    if latency_improvement > 0:
+        print(f"{name2} 在延迟方面比 {name1} 改善了 {latency_improvement:.2f}%")
+    if memory_improvement > 0:
+        print(f"{name2} 在内存使用方面比 {name1} 节省了 {memory_improvement:.2f}%")

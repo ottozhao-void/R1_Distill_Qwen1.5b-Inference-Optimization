@@ -1,0 +1,23 @@
+# 示例测试提示文件
+# 每行一个提示，用于LLM推理性能测试
+
+The future of artificial intelligence will be
+In the next decade, technology will
+Climate change is affecting our planet by
+The most important breakthrough in science is
+Machine learning algorithms can help solve
+The key to sustainable development lies in
+Space exploration has revealed that
+The impact of social media on society includes
+Renewable energy sources are becoming more important because
+The evolution of human civilization shows us
+Education plays a crucial role in
+Healthcare systems around the world need to
+Innovation drives economic growth through
+The benefits of international cooperation include
+Modern transportation systems are evolving to
+Digital transformation is changing businesses by
+The role of government in addressing global challenges
+Scientific research contributes to human progress by
+Cultural diversity enriches our society through
+The relationship between humans and nature requires
