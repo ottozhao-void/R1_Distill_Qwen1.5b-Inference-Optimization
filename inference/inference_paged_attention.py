@@ -10,8 +10,8 @@ import gc
 import warnings
 warnings.filterwarnings("ignore")
 
-from config import Config
-from inference_module import InferenceModule
+from config.config import Config
+from inference.inference_module import InferenceModule
 
 
 class InferenceOnPagedAttention(InferenceModule):
@@ -31,10 +31,10 @@ class InferenceOnPagedAttention(InferenceModule):
         self.transformers_tokenizer = None
         self.vllm_model = None
         
-        print(f"初始化PagedAttention推理模块")
-        print(f"模型: {config.model}")
-        print(f"设备: {config.get_device_str()}")
-        print(f"是否多GPU: {config.is_multi_gpu()}")
+        # print(f"初始化PagedAttention推理模块")
+        # print(f"模型: {config.model}")
+        # print(f"设备: {config.get_device_str()}")
+        # print(f"是否多GPU: {config.is_multi_gpu()}")
     
     def _initialize_transformers_model(self):
         """初始化transformers模型"""
@@ -90,7 +90,7 @@ class InferenceOnPagedAttention(InferenceModule):
             
             # 如果只有一个GPU或CPU，设置相应参数
             if self.config.device and len(self.config.device) == 1:
-                vllm_kwargs["gpu_memory_utilization"] = 0.5  # Reduced to avoid conflicts
+                vllm_kwargs["gpu_memory_utilization"] = 0.4  # Reduced to avoid conflicts
             
             self.vllm_model = LLM(**vllm_kwargs)
             
@@ -395,9 +395,9 @@ class InferenceOnPagedAttention(InferenceModule):
             
             print(f"\n测试批次大小: {batch_size}")
             
-            # 临时修改配置
+
             original_iterations = self.config.test_iterations
-            self.config.test_iterations = 2  # 减少迭代次数以节省时间
+            self.config.test_iterations = 2 
             
             try:
                 batch_results = self.inference(prompts, method="both")

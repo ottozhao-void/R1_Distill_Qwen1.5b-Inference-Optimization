@@ -6,8 +6,8 @@
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
-from performance_monitor import PerformanceMonitor, PerformanceMetrics
-from config import Config
+from utils.performance_monitor import PerformanceMonitor, PerformanceMetrics
+from config.config import Config
 
 
 class InferenceModule(ABC):
@@ -165,7 +165,7 @@ class InferenceModule(ABC):
             basic_metrics: 基础推理性能指标
             optimized_metrics: 优化推理性能指标
         """
-        from performance_monitor import compare_metrics
+        from utils.performance_monitor import compare_metrics
         compare_metrics(basic_metrics, optimized_metrics, "基础推理", "优化推理")
     
     def get_model_info(self) -> Dict[str, Any]:

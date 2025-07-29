@@ -11,46 +11,23 @@ import argparse
 import sys
 import os
 from typing import List, Optional
+import vllm
+import torch
+import transformers
 
 # 添加当前目录到路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from config import Config, ConfigPresets, load_config_from_env
-from inference_paged_attention import InferenceOnPagedAttention
+from config.config import Config, ConfigPresets, load_config_from_env
+from inference.inference_paged_attention import InferenceOnPagedAttention
 
 
 def parse_arguments():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
         description="LLM推理优化性能测试",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-使用示例:
-  # 使用默认小模型进行快速测试
-  python main.py --preset small
-  
-  # 使用自定义模型
-  python main.py --model /path/to/model --max-tokens 200
-  
-  # 只运行基础推理
-  python main.py --method basic
-  
-  # 只运行优化推理
-  python main.py --method optimized
-  
-  # 使用自定义GPU设备
-  python main.py --devices 0,1
-  
-  # 内存效率基准测试
-  python main.py --benchmark-memory --batch-sizes 1,2,4,8
-        """
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    
-    # 模型配置
-    parser.add_argument("--model", type=str, default=None,
-                       help="模型名称或路径")
-    parser.add_argument("--devices", type=str, default=None,
-                       help="CUDA设备ID，用逗号分隔 (例如: 0,1)")
     
     # 推理配置
     parser.add_argument("--max-tokens", type=int, default=None,
@@ -126,14 +103,6 @@ def create_config_from_args(args) -> Config:
         # 从环境变量加载配置或使用默认配置
         config = load_config_from_env()
     
-    # 用命令行参数覆盖配置
-    if args.model:
-        config.model = args.model
-    
-    if args.devices:
-        device_ids = [int(x.strip()) for x in args.devices.split(",")]
-        config.device = device_ids
-    
     if args.max_tokens:
         config.max_tokens = args.max_tokens
     
@@ -164,76 +133,13 @@ def create_config_from_args(args) -> Config:
     return config
 
 
-def check_dependencies():
-    """检查依赖包是否安装"""
-    required_packages = {
-        "torch": "PyTorch",
-        "transformers": "Hugging Face Transformers",
-        "vllm": "vLLM",
-        "numpy": "NumPy",
-        "psutil": "psutil"
-    }
-    
-    missing_packages = []
-    
-    for package, name in required_packages.items():
-        try:
-            __import__(package)
-        except ImportError:
-            missing_packages.append(name)
-    
-    if missing_packages:
-        print("❌ 缺少以下依赖包:")
-        for package in missing_packages:
-            print(f"   - {package}")
-        print("\n请运行以下命令安装依赖:")
-        print("pip install -r requirements.txt")
-        return False
-    
-    print("✅ 所有依赖包已安装")
-    return True
-
-
-def print_system_info():
-    """打印系统信息"""
-    print("\n" + "="*60)
-    print("系统信息")
-    print("="*60)
-    
-    try:
-        import torch
-        print(f"PyTorch版本: {torch.__version__}")
-        print(f"CUDA可用: {torch.cuda.is_available()}")
-        if torch.cuda.is_available():
-            print(f"GPU数量: {torch.cuda.device_count()}")
-            for i in range(torch.cuda.device_count()):
-                print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
-                memory_total = torch.cuda.get_device_properties(i).total_memory / 1024**3
-                print(f"    内存: {memory_total:.1f}GB")
-    except ImportError:
-        print("PyTorch未安装")
-    
-    try:
-        import transformers
-        print(f"Transformers版本: {transformers.__version__}")
-    except ImportError:
-        print("Transformers未安装")
-    
-    try:
-        import vllm
-        print(f"vLLM版本: {vllm.__version__}")
-    except ImportError:
-        print("vLLM未安装")
-    
-    print("="*60)
-
 
 def main():
 
-    # 设置环境变量以确保CUDA库的正确加载
-    os.environ["LD_LIBRARY_PATH"] = "/home/zhaofanghan/tmp/lib:/home/zhaofanghan/tmp/cuda_stubs:" + os.environ.get("LD_LIBRARY_PATH", "")
-    os.environ["CUDA_HOME"] = "/usr/local/cuda"
-    os.environ["PATH"] = "/usr/local/cuda/bin:" + os.environ.get("PATH", "")
+    # # 设置环境变量以确保CUDA库的正确加载
+    # os.environ["LD_LIBRARY_PATH"] = "/home/zhaofanghan/tmp/lib:/home/zhaofanghan/tmp/cuda_stubs:" + os.environ.get("LD_LIBRARY_PATH", "")
+    # os.environ["CUDA_HOME"] = "/usr/local/cuda"
+    # os.environ["PATH"] = "/usr/local/cuda/bin:" + os.environ.get("PATH", "")
     
     
     """主函数"""
@@ -242,13 +148,6 @@ def main():
     
     # 解析命令行参数
     args = parse_arguments()
-    
-    # 检查依赖
-    if not check_dependencies():
-        sys.exit(1)
-    
-    # 打印系统信息
-    print_system_info()
     
     # 创建配置
     config = create_config_from_args(args)
@@ -270,6 +169,8 @@ def main():
         custom_prompts = load_prompts_from_file(args.prompts_file)
         if not custom_prompts:
             print("⚠️ 无法从文件加载提示，使用默认提示")
+    
+    
     
     try:
         # 创建推理模块
