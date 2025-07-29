@@ -2,6 +2,9 @@
 主程序 - 大语言模型推理和优化
 
 这是项目的主入口文件，演示如何使用各个模块进行LLM推理性能对比测试。
+
+注意：本项目已统一配置为使用 DeepSeek-R1-Distill-Qwen-1.5B 模型，
+确保 PagedAttention 与传统 Key-Value Cache 对比实验的公平性。
 """
 
 import argparse
@@ -27,7 +30,7 @@ def parse_arguments():
   python main.py --preset small
   
   # 使用自定义模型
-  python main.py --model facebook/opt-1.3b --max-tokens 200
+  python main.py --model /path/to/model --max-tokens 200
   
   # 只运行基础推理
   python main.py --method basic
@@ -36,7 +39,7 @@ def parse_arguments():
   python main.py --method optimized
   
   # 使用自定义GPU设备
-  python main.py --devices 0,1 --model meta-llama/Llama-2-7b-chat-hf
+  python main.py --devices 0,1
   
   # 内存效率基准测试
   python main.py --benchmark-memory --batch-sizes 1,2,4,8
@@ -68,7 +71,7 @@ def parse_arguments():
                        help="预热迭代次数")
     
     # 预设配置
-    parser.add_argument("--preset", type=str, choices=["small", "large", "llama"],
+    parser.add_argument("--preset", type=str, choices=["small", "large"],
                        help="使用预设配置")
     
     # 运行模式
@@ -119,8 +122,6 @@ def create_config_from_args(args) -> Config:
             config = ConfigPresets.small_model_config()
         elif args.preset == "large":
             config = ConfigPresets.large_model_config()
-        elif args.preset == "llama":
-            config = ConfigPresets.llama_config()
     else:
         # 从环境变量加载配置或使用默认配置
         config = load_config_from_env()
@@ -204,7 +205,6 @@ def print_system_info():
         print(f"PyTorch版本: {torch.__version__}")
         print(f"CUDA可用: {torch.cuda.is_available()}")
         if torch.cuda.is_available():
-            print(f"CUDA版本: {torch.version.cuda}")
             print(f"GPU数量: {torch.cuda.device_count()}")
             for i in range(torch.cuda.device_count()):
                 print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
@@ -229,6 +229,13 @@ def print_system_info():
 
 
 def main():
+
+    # 设置环境变量以确保CUDA库的正确加载
+    os.environ["LD_LIBRARY_PATH"] = "/home/zhaofanghan/tmp/lib:/home/zhaofanghan/tmp/cuda_stubs:" + os.environ.get("LD_LIBRARY_PATH", "")
+    os.environ["CUDA_HOME"] = "/usr/local/cuda"
+    os.environ["PATH"] = "/usr/local/cuda/bin:" + os.environ.get("PATH", "")
+    
+    
     """主函数"""
     print("🚀 大语言模型推理和优化性能测试")
     print("="*60)

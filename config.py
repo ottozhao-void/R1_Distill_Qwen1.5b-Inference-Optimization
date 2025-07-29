@@ -2,11 +2,14 @@
 配置模块 - Config
 
 该模块用来管理项目中的各项配置，包括模型路径、设备配置等。
+
+注意：本项目已配置为统一使用 DeepSeek-R1-Distill-Qwen-1.5B 模型，
+所有预设配置和默认配置都已更新为使用此模型，确保整个推理工作流的一致性。
 """
 
 import os
 from typing import List, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -14,8 +17,8 @@ class Config:
     """项目配置类"""
     
     # 模型配置
-    model: str = "facebook/opt-125m"  # 默认使用小模型进行测试
-    device: List[int] = None  # CUDA设备ID列表，None表示自动检测
+    model: str = "/data1/zhaofanghan/.cache/huggingface/hub/DeepSeek-R1-Distill-Qwen-1.5B"  # 默认使用小模型进行测试
+    device: Optional[List[int]] = field(default_factory=lambda: [4])  # CUDA设备ID列表，None表示自动检测
     
     # 推理配置
     max_tokens: int = 100
@@ -72,7 +75,7 @@ class ConfigPresets:
     def small_model_config() -> Config:
         """小模型配置，用于快速测试"""
         return Config(
-            model="facebook/opt-125m",
+            model="/data1/zhaofanghan/.cache/huggingface/hub/DeepSeek-R1-Distill-Qwen-1.5B",
             max_tokens=50,
             num_prompts=5,
             test_iterations=3
@@ -82,21 +85,9 @@ class ConfigPresets:
     def large_model_config() -> Config:
         """大模型配置，用于性能测试"""
         return Config(
-            model="facebook/opt-1.3b",
+            model="/data1/zhaofanghan/.cache/huggingface/hub/DeepSeek-R1-Distill-Qwen-1.5B",
             max_tokens=200,
             num_prompts=20,
-            test_iterations=10
-        )
-    
-    @staticmethod
-    def llama_config() -> Config:
-        """Llama模型配置"""
-        return Config(
-            model="meta-llama/Llama-2-7b-chat-hf",
-            max_tokens=256,
-            temperature=0.7,
-            top_p=0.9,
-            num_prompts=15,
             test_iterations=10
         )
 
@@ -106,20 +97,25 @@ def load_config_from_env() -> Config:
     config = Config()
     
     # 从环境变量读取配置
-    if os.getenv("MODEL_NAME"):
-        config.model = os.getenv("MODEL_NAME")
+    model_name = os.getenv("MODEL_NAME")
+    if model_name:
+        config.model = model_name
     
-    if os.getenv("CUDA_DEVICES"):
-        device_ids = [int(x) for x in os.getenv("CUDA_DEVICES").split(",")]
+    cuda_devices = os.getenv("CUDA_DEVICES")
+    if cuda_devices:
+        device_ids = [int(x) for x in cuda_devices.split(",")]
         config.device = device_ids
     
-    if os.getenv("MAX_TOKENS"):
-        config.max_tokens = int(os.getenv("MAX_TOKENS"))
+    max_tokens = os.getenv("MAX_TOKENS")
+    if max_tokens:
+        config.max_tokens = int(max_tokens)
     
-    if os.getenv("TEMPERATURE"):
-        config.temperature = float(os.getenv("TEMPERATURE"))
+    temperature = os.getenv("TEMPERATURE")
+    if temperature:
+        config.temperature = float(temperature)
     
-    if os.getenv("OUTPUT_DIR"):
-        config.output_dir = os.getenv("OUTPUT_DIR")
+    output_dir = os.getenv("OUTPUT_DIR")
+    if output_dir:
+        config.output_dir = output_dir
     
     return config

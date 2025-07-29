@@ -5,7 +5,7 @@ PagedAttention推理模块 - InferenceOnPagedAttention
 这构成了针对PagedAttention优化技术的对比实验。
 """
 
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 import gc
 import warnings
 warnings.filterwarnings("ignore")
@@ -81,6 +81,7 @@ class InferenceOnPagedAttention(InferenceModule):
                 "model": self.config.model,
                 "trust_remote_code": True,
                 "max_model_len": 2048,  # 限制序列长度以节省内存
+                "enforce_eager": True,  # 禁用torch编译以避免ldconfig问题
             }
             
             # 设置GPU相关参数
@@ -88,8 +89,8 @@ class InferenceOnPagedAttention(InferenceModule):
                 vllm_kwargs["tensor_parallel_size"] = self.config.get_tensor_parallel_size()
             
             # 如果只有一个GPU或CPU，设置相应参数
-            if len(self.config.device) == 1:
-                vllm_kwargs["gpu_memory_utilization"] = 0.8
+            if self.config.device and len(self.config.device) == 1:
+                vllm_kwargs["gpu_memory_utilization"] = 0.5  # Reduced to avoid conflicts
             
             self.vllm_model = LLM(**vllm_kwargs)
             
@@ -197,6 +198,60 @@ class InferenceOnPagedAttention(InferenceModule):
             print(f"vLLM推理失败: {e}")
             return [f"Error: {e}"] * len(prompts)
     
+    def inference(self, prompts: List[str], method: str = "both") -> Dict[str, Any]:
+        """
+        重写推理方法以支持设备间的内存管理
+        """
+        results = {}
+        
+        if method in ["basic", "both"]:
+            print(f"\n开始基础推理测试...")
+            basic_results, basic_metrics = self._run_inference_with_monitoring(
+                prompts, self.basic_inference, "基础推理"
+            )
+            results["basic"] = {
+                "outputs": basic_results,
+                "metrics": basic_metrics
+            }
+            
+            # 如果要运行两种方法，在切换到优化推理前清理基础推理模型
+            if method == "both":
+                print("清理基础推理模型以释放内存...")
+                if self.transformers_model is not None:
+                    del self.transformers_model
+                    self.transformers_model = None
+                if self.transformers_tokenizer is not None:
+                    del self.transformers_tokenizer
+                    self.transformers_tokenizer = None
+                
+                import gc
+                gc.collect()
+                
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        print("CUDA缓存已清理")
+                except ImportError:
+                    pass
+        
+        if method in ["optimized", "both"]:
+            print(f"\n开始优化推理测试...")
+            optimized_results, optimized_metrics = self._run_inference_with_monitoring(
+                prompts, self.optimized_inference, "优化推理"
+            )
+            results["optimized"] = {
+                "outputs": optimized_results,
+                "metrics": optimized_metrics
+            }
+        
+        # 如果两种方法都运行了，进行对比
+        if method == "both":
+            print(f"\n开始性能对比...")
+            self.compare_results(results["basic"]["metrics"], results["optimized"]["metrics"])
+        
+        return results
+    
     def cleanup(self):
         """清理资源"""
         print("正在清理资源...")
@@ -251,6 +306,7 @@ class InferenceOnPagedAttention(InferenceModule):
         
         print(f"测试配置:")
         print(f"  模型: {self.config.model}")
+        print(f"  设备: {self.config.get_device_str()}")
         print(f"  提示数量: {len(prompts)}")
         print(f"  最大生成tokens: {self.config.max_tokens}")
         print(f"  测试迭代次数: {self.config.test_iterations}")
@@ -311,7 +367,7 @@ class InferenceOnPagedAttention(InferenceModule):
         
         print("="*80)
     
-    def benchmark_memory_efficiency(self, batch_sizes: List[int] = None) -> dict:
+    def benchmark_memory_efficiency(self, batch_sizes: Optional[List[int]] = None) -> dict:
         """
         测试不同批次大小下的内存效率
         

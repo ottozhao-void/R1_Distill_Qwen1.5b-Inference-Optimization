@@ -30,7 +30,7 @@ mkdir -p $RESULTS_DIR
 echo "📁 结果将保存到: $RESULTS_DIR"
 
 # 测试配置
-MODELS=("facebook/opt-125m" "facebook/opt-350m")
+MODELS=("/data1/zhaofanghan/.cache/huggingface/hub/DeepSeek-R1-Distill-Qwen-1.5B")
 BATCH_SIZES=(1 2 4)
 MAX_TOKENS=(50 100)
 
