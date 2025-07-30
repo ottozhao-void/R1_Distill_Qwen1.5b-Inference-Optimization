@@ -12,6 +12,14 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from contextlib import contextmanager
 
+# 尝试导入pynvml用于更准确的GPU内存监测
+try:
+    import pynvml
+    PYNVML_AVAILABLE = True
+    pynvml.nvmlInit()
+except ImportError:
+    PYNVML_AVAILABLE = False
+
 
 @dataclass
 class PerformanceMetrics:
@@ -73,11 +81,41 @@ class PerformanceMetrics:
                 self.time_per_output_token = total_generation_time / total_output_tokens
 
 
+class SystemMemoryTracker:
+    """系统级内存追踪器，用于跨进程内存监测"""
+    
+    def __init__(self, device_id: Optional[int] = None):
+        self.device_id = device_id
+        self.baseline_memory = self._get_current_system_memory()
+        
+    def _get_current_system_memory(self) -> float:
+        """获取当前系统级GPU内存使用 (MB)"""
+        if PYNVML_AVAILABLE and torch.cuda.is_available():
+            try:
+                device = self.device_id if self.device_id is not None else 0
+                handle = pynvml.nvmlDeviceGetHandleByIndex(device)
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                return float(mem_info.used) / 1024**2
+            except:
+                pass
+        return 0.0
+    
+    def get_memory_increase(self) -> float:
+        """获取相对于基线的内存增量 (MB)"""
+        current = self._get_current_system_memory()
+        return max(0.0, current - self.baseline_memory)
+    
+    def reset_baseline(self):
+        """重置内存基线"""
+        self.baseline_memory = self._get_current_system_memory()
+
+
 class PerformanceMonitor:
     """性能监测器"""
     
     def __init__(self, device_id: Optional[int] = None):
         self.device_id = device_id
+        self.system_memory_tracker = SystemMemoryTracker(device_id)
         self.reset()
     
     def reset(self):
@@ -89,6 +127,9 @@ class PerformanceMonitor:
         self.first_token_times = []
         self.gpu_memory_peak = 0.0
         self.current_batch_start = None
+        
+        # 重置系统内存基线
+        self.system_memory_tracker.reset_baseline()
         
         # GPU内存监测
         if torch.cuda.is_available():
@@ -148,6 +189,8 @@ class PerformanceMonitor:
     def start_monitoring(self):
         """开始监测"""
         self.start_time = time.time()
+        # 重置GPU内存峰值追踪
+        self.gpu_memory_peak = 0.0
         if torch.cuda.is_available():
             try:
                 if self.device_id is not None:
@@ -186,8 +229,25 @@ class PerformanceMonitor:
         metrics.first_token_times = self.first_token_times.copy()
         
         # 内存使用
-        metrics.gpu_memory_peak = self.gpu_memory_peak
-        metrics.gpu_memory_used = self._get_current_gpu_memory()
+        # 获取最终的GPU内存信息
+        gpu_info = self.get_gpu_memory_info()
+        
+        # 使用系统级内存增量作为主要指标（更准确地反映实际内存使用）
+        system_memory_increase = self.system_memory_tracker.get_memory_increase()
+        
+        if system_memory_increase > 0:
+            # 优先使用系统级内存增量
+            metrics.gpu_memory_peak = system_memory_increase
+            metrics.gpu_memory_used = system_memory_increase
+        elif gpu_info["system_used"] > 0:
+            # 其次使用系统级总内存
+            metrics.gpu_memory_peak = gpu_info["system_used"]
+            metrics.gpu_memory_used = gpu_info["system_used"]
+        else:
+            # 最后使用PyTorch内存统计
+            metrics.gpu_memory_peak = max(self.gpu_memory_peak, gpu_info["peak"])
+            metrics.gpu_memory_used = gpu_info["allocated"]
+        
         metrics.cpu_memory_used = self._get_cpu_memory()
         
         # 计算派生指标
@@ -213,6 +273,38 @@ class PerformanceMonitor:
             except RuntimeError:
                 return 0.0
         return 0.0
+    
+    def get_gpu_memory_info(self) -> Dict[str, float]:
+        """获取详细的GPU内存信息 (MB)"""
+        if torch.cuda.is_available():
+            try:
+                device = self.device_id if self.device_id is not None else torch.cuda.current_device()
+                allocated = torch.cuda.memory_allocated(device) / 1024**2
+                cached = torch.cuda.memory_reserved(device) / 1024**2
+                peak = torch.cuda.max_memory_allocated(device) / 1024**2
+                
+                # 如果可用，使用pynvml获取系统级GPU内存信息
+                total_memory = 0.0
+                used_memory = 0.0
+                if PYNVML_AVAILABLE:
+                    try:
+                        handle = pynvml.nvmlDeviceGetHandleByIndex(device)
+                        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                        total_memory = float(mem_info.total) / 1024**2
+                        used_memory = float(mem_info.used) / 1024**2
+                    except:
+                        pass
+                
+                return {
+                    "allocated": allocated,
+                    "cached": cached, 
+                    "peak": peak,
+                    "system_used": used_memory,
+                    "system_total": total_memory
+                }
+            except RuntimeError:
+                pass
+        return {"allocated": 0.0, "cached": 0.0, "peak": 0.0, "system_used": 0.0, "system_total": 0.0}
     
     def _get_cpu_memory(self) -> float:
         """获取CPU内存使用 (MB)"""

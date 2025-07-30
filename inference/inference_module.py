@@ -107,8 +107,14 @@ class InferenceModule(ABC):
         Returns:
             (outputs, metrics) 元组
         """
-        # 重置监测器
+        import torch
+        
+        # 重置监测器 - 清理之前的内存统计
         self.performance_monitor.reset()
+        
+        # 记录开始前的内存状态
+        initial_gpu_info = self.performance_monitor.get_gpu_memory_info()
+        print(f"开始前GPU内存: 已分配={initial_gpu_info['allocated']:.2f}MB, 峰值={initial_gpu_info['peak']:.2f}MB, 系统使用={initial_gpu_info['system_used']:.2f}MB")
         
         # 预热阶段
         print(f"预热阶段...")
@@ -116,10 +122,17 @@ class InferenceModule(ABC):
         for _ in range(self.config.warmup_iterations):
             _ = inference_func(warmup_prompts)
         
+        # 预热后记录内存并重置监测
+        warmup_gpu_info = self.performance_monitor.get_gpu_memory_info()
+        print(f"预热后GPU内存: 已分配={warmup_gpu_info['allocated']:.2f}MB, 峰值={warmup_gpu_info['peak']:.2f}MB, 系统使用={warmup_gpu_info['system_used']:.2f}MB")
+        
+        # 重置系统内存基线（以预热后的状态为基准）
+        self.performance_monitor.system_memory_tracker.reset_baseline()
+        self.performance_monitor.start_monitoring()
+        
         # 正式测试
         print(f"正式测试阶段...")
         all_outputs = []
-        self.performance_monitor.start_monitoring()
         
         for i in range(self.config.test_iterations):
             with self.performance_monitor.measure_batch():
@@ -131,6 +144,11 @@ class InferenceModule(ABC):
                 self.performance_monitor.add_token_count(total_tokens)
         
         self.performance_monitor.stop_monitoring()
+        
+        # 记录结束后的内存状态
+        final_gpu_info = self.performance_monitor.get_gpu_memory_info()
+        system_memory_increase = self.performance_monitor.system_memory_tracker.get_memory_increase()
+        print(f"结束后GPU内存: 已分配={final_gpu_info['allocated']:.2f}MB, 峰值={final_gpu_info['peak']:.2f}MB, 系统使用={final_gpu_info['system_used']:.2f}MB, 系统增量={system_memory_increase:.2f}MB")
         
         # 获取性能指标
         metrics = self.performance_monitor.get_metrics(

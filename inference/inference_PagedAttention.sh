@@ -1,0 +1,3 @@
+cd /data1/zhaofanghan/R1_Distill_Qwen1.5b-Inference-Optimization && python main.py --technique PagedAttention --device 3 --batch-level small --method both
+cd /data1/zhaofanghan/R1_Distill_Qwen1.5b-Inference-Optimization && python main.py --technique PagedAttention --device 6 --batch-level medium --method both
+cd /data1/zhaofanghan/R1_Distill_Qwen1.5b-Inference-Optimization && python main.py --technique PagedAttention --device 7 --batch-level large --method both
