@@ -18,7 +18,7 @@ import transformers
 # 添加当前目录到路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from config.config import Config, load_config_from_yaml, get_config_for_technique
+from config.config import Config, load_config_from_yaml, get_config_for_technique, print_available_devices
 from inference.inference_paged_attention import InferenceOnPagedAttention
 from inference.inference_quantization import InferenceOnQuantization
 
@@ -49,6 +49,12 @@ def parse_arguments():
     # 配置文件路径
     parser.add_argument("--config", type=str, default=None,
                        help="YAML配置文件路径")
+    
+    # 设备配置
+    parser.add_argument("--device", type=str, default=None,
+                       help="指定CUDA设备，例如: '0' 表示cuda:0, '0,1' 表示使用GPU 0和1, 'cpu' 表示使用CPU")
+    parser.add_argument("--list-devices", action="store_true",
+                       help="显示可用设备信息并退出")
     
     # 推理配置
     parser.add_argument("--max-tokens", type=int, default=None,
@@ -122,6 +128,19 @@ def create_config_from_args(args) -> Config:
         )
     
     # 用命令行参数覆盖配置
+    if args.device:
+        # 解析设备参数
+        if args.device.lower() == 'cpu':
+            config.device = []
+        else:
+            try:
+                # 支持 "0" 或 "0,1,2" 格式
+                device_ids = [int(x.strip()) for x in args.device.split(',')]
+                config.device = device_ids
+                print(f"设置设备为: {device_ids}")
+            except ValueError:
+                print(f"警告: 无效的设备参数 '{args.device}'，使用默认设备")
+    
     if args.max_tokens:
         config.max_tokens = args.max_tokens
     
@@ -167,6 +186,11 @@ def main():
     
     # 解析命令行参数
     args = parse_arguments()
+    
+    # 如果用户请求显示设备信息，显示后退出
+    if args.list_devices:
+        print_available_devices()
+        return
     
     # 创建配置
     config = create_config_from_args(args)

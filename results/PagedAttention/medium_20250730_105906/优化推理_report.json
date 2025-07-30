@@ -1,0 +1,49 @@
+{
+  "model_info": {
+    "name": "/data1/zhaofanghan/.cache/huggingface/hub/DeepSeek-R1-Distill-Qwen-1.5B",
+    "device": "GPU: NVIDIA GeForce RTX 3090 (x8)",
+    "batch_size": 10
+  },
+  "timing": {
+    "total_time": 7.364730596542358,
+    "avg_latency": 1.4721601486206055,
+    "p50_latency": 1.4724383354187012,
+    "p95_latency": 1.4817156791687012,
+    "p99_latency": 1.4835410118103027,
+    "time_to_first_token": 1.4482679665088654,
+    "time_per_output_token": 0.0018649102465424442,
+    "latencies": [
+      1.4839973449707031,
+      1.4725890159606934,
+      1.471567153930664,
+      1.4724383354187012,
+      1.4602088928222656
+    ],
+    "first_token_times": [
+      1.4529914855957031,
+      1.3858118057250977,
+      1.39036226272583,
+      1.483266830444336,
+      1.4719011783599854,
+      1.4708707332611084,
+      1.471717357635498,
+      1.4592220783233643
+    ]
+  },
+  "throughput": {
+    "tokens_per_second": 535.9327063305022,
+    "requests_per_second": 0.6789114597548799,
+    "token_counts": [
+      783,
+      819,
+      803,
+      820,
+      722
+    ]
+  },
+  "memory": {
+    "gpu_memory_peak": 0.0,
+    "gpu_memory_used": 0.0,
+    "cpu_memory_used": 2004.97265625
+  }
+}

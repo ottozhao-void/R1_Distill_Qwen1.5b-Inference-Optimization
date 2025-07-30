@@ -63,14 +63,24 @@ class Config:
             self.batch_size = max(self.batch_size, 8)
             self.num_prompts = max(self.num_prompts, 20)
         
-        # 创建输出目录（根据技术类型）
+        # 创建输出目录（根据技术类型、批次级别和时间戳）
         if self.save_results:
             technique_dir = os.path.join("results", self.technique)
             if not os.path.exists(technique_dir):
                 os.makedirs(technique_dir)
+            
             # 只有在output_dir还是默认值时才更新
             if self.output_dir == "results":
-                self.output_dir = technique_dir
+                # 生成时间戳字符串
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                # 创建带批次级别和时间戳的目录
+                batch_timestamp_dir = os.path.join(technique_dir, f"{self.batch_level}_{timestamp}")
+                if not os.path.exists(batch_timestamp_dir):
+                    os.makedirs(batch_timestamp_dir)
+                
+                self.output_dir = batch_timestamp_dir
     
     def get_tensor_parallel_size(self) -> int:
         """获取张量并行大小"""
@@ -168,6 +178,54 @@ def get_config_for_technique(technique: str, batch_level: str = "medium",
         # 保存默认配置
         save_config_to_yaml(config, config_path)
         return config
+
+
+def get_available_devices() -> Dict[str, Any]:
+    """获取可用设备信息"""
+    device_info = {"has_cuda": False, "cuda_devices": [], "cpu_available": True}
+    
+    try:
+        import torch
+        if torch.cuda.is_available():
+            device_info["has_cuda"] = True
+            device_count = torch.cuda.device_count()
+            for i in range(device_count):
+                device_name = torch.cuda.get_device_name(i)
+                memory_total = torch.cuda.get_device_properties(i).total_memory / 1024**3  # GB
+                device_info["cuda_devices"].append({
+                    "id": i,
+                    "name": device_name,
+                    "memory_gb": round(memory_total, 1)
+                })
+    except ImportError:
+        pass
+    
+    return device_info
+
+
+def print_available_devices():
+    """打印可用设备信息"""
+    device_info = get_available_devices()
+    
+    print("🖥️  可用设备信息:")
+    print("="*50)
+    
+    if device_info["has_cuda"]:
+        print("✅ CUDA 设备:")
+        for device in device_info["cuda_devices"]:
+            print(f"   GPU {device['id']}: {device['name']} ({device['memory_gb']}GB)")
+        print(f"\n💡 使用示例:")
+        print(f"   --device 0          # 使用 GPU 0")
+        if len(device_info["cuda_devices"]) > 1:
+            print(f"   --device 0,1        # 使用 GPU 0 和 1")
+    else:
+        print("❌ 未检测到 CUDA 设备")
+    
+    if device_info["cpu_available"]:
+        print(f"✅ CPU 可用")
+        print(f"   --device cpu        # 使用 CPU")
+    
+    print("="*50)
 
 
 def load_config_from_env() -> Config:

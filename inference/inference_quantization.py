@@ -252,9 +252,6 @@ class InferenceOnQuantization(InferenceModule):
             return [f"Error: {e}"] * len(prompts)
     
     def inference(self, prompts: List[str], method: str = "both") -> Dict[str, Any]:
-        """
-        重写推理方法以支持设备间的内存管理
-        """
         results = {}
         
         if method in ["basic", "both"]:
