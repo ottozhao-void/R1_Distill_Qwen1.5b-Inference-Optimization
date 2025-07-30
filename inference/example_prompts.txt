@@ -21,3 +21,15 @@ The role of government in addressing global challenges
 Scientific research contributes to human progress by
 Cultural diversity enriches our society through
 The relationship between humans and nature requires
+
+# 量化测试专用提示（较短，适合快速测试）
+Explain quantum computing
+Describe machine learning
+What is deep learning?
+How does AI work?
+Define neural networks
+
+# PagedAttention测试专用提示（较长，测试内存效率）
+Write a detailed explanation of how artificial intelligence systems process natural language and generate human-like responses
+Provide a comprehensive analysis of the environmental impact of renewable energy technologies and their role in combating climate change
+Describe the historical development of computer science from its early foundations to modern distributed computing systems

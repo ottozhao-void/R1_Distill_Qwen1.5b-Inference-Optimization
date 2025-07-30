@@ -141,7 +141,7 @@ class InferenceModule(ABC):
     
     def print_result(self, metrics: PerformanceMetrics, method_name: str):
         """
-        打印性能监测结果
+        打印性能监测结果并保存报告
         
         Args:
             metrics: 性能指标
@@ -150,11 +150,39 @@ class InferenceModule(ABC):
         print(f"\n{method_name} 性能结果:")
         self.performance_monitor.print_summary(metrics)
         
-        # 保存详细报告
+        # 保存报告
         if self.config.save_results:
-            filename = f"{method_name.replace(' ', '_').lower()}_report.json"
-            filepath = f"{self.config.output_dir}/{filename}"
-            self.performance_monitor.save_detailed_report(metrics, filepath)
+            import os
+            
+            # 保存JSON格式详细报告
+            json_filename = f"{method_name.replace(' ', '_').lower()}_report.json"
+            json_filepath = os.path.join(self.config.output_dir, json_filename)
+            self.performance_monitor.save_detailed_report(metrics, json_filepath)
+            
+            # 保存Markdown格式报告
+            md_filename = f"{method_name.replace(' ', '_').lower()}_report.md"
+            md_filepath = os.path.join(self.config.output_dir, md_filename)
+            
+            # 创建配置字典
+            config_dict = {
+                'experiment_name': getattr(self.config, 'experiment_name', 'default'),
+                'technique': getattr(self.config, 'technique', 'Unknown'),
+                'batch_level': getattr(self.config, 'batch_level', 'medium'),
+                'model': self.config.model,
+                'device': self.config.device,
+                'batch_size': self.config.batch_size,
+                'max_tokens': self.config.max_tokens,
+                'temperature': self.config.temperature,
+                'top_p': self.config.top_p,
+                'num_prompts': self.config.num_prompts,
+                'warmup_iterations': self.config.warmup_iterations,
+                'test_iterations': self.config.test_iterations,
+                'quantization_config': getattr(self.config, 'quantization_config', None)
+            }
+            
+            self.performance_monitor.save_markdown_report(
+                metrics, config_dict, md_filepath, method_name
+            )
     
     def compare_results(self, basic_metrics: PerformanceMetrics, 
                        optimized_metrics: PerformanceMetrics):
@@ -167,6 +195,192 @@ class InferenceModule(ABC):
         """
         from utils.performance_monitor import compare_metrics
         compare_metrics(basic_metrics, optimized_metrics, "基础推理", "优化推理")
+        
+        # 保存比较报告
+        if self.config.save_results:
+            self._save_comparison_report(basic_metrics, optimized_metrics)
+    
+    def _save_comparison_report(self, basic_metrics: PerformanceMetrics, 
+                              optimized_metrics: PerformanceMetrics):
+        """保存对比实验的综合报告"""
+        import os
+        from datetime import datetime
+        
+        # 创建配置字典
+        config_dict = {
+            'experiment_name': getattr(self.config, 'experiment_name', 'default'),
+            'technique': getattr(self.config, 'technique', 'Unknown'),
+            'batch_level': getattr(self.config, 'batch_level', 'medium'),
+            'model': self.config.model,
+            'device': self.config.device,
+            'batch_size': self.config.batch_size,
+            'max_tokens': self.config.max_tokens,
+            'temperature': self.config.temperature,
+            'top_p': self.config.top_p,
+            'num_prompts': self.config.num_prompts,
+            'warmup_iterations': self.config.warmup_iterations,
+            'test_iterations': self.config.test_iterations,
+            'quantization_config': getattr(self.config, 'quantization_config', None)
+        }
+        
+        # 计算改进指标
+        latency_improvement = 0
+        throughput_improvement = 0 
+        memory_improvement = 0
+        ttft_improvement = 0
+        tpot_improvement = 0
+        
+        if basic_metrics.avg_latency > 0:
+            latency_improvement = (basic_metrics.avg_latency - optimized_metrics.avg_latency) / basic_metrics.avg_latency * 100
+        
+        if basic_metrics.tokens_per_second > 0:
+            throughput_improvement = (optimized_metrics.tokens_per_second - basic_metrics.tokens_per_second) / basic_metrics.tokens_per_second * 100
+        
+        if basic_metrics.gpu_memory_peak > 0:
+            memory_improvement = (basic_metrics.gpu_memory_peak - optimized_metrics.gpu_memory_peak) / basic_metrics.gpu_memory_peak * 100
+        
+        if basic_metrics.time_to_first_token > 0:
+            ttft_improvement = (basic_metrics.time_to_first_token - optimized_metrics.time_to_first_token) / basic_metrics.time_to_first_token * 100
+        
+        if basic_metrics.time_per_output_token > 0:
+            tpot_improvement = (basic_metrics.time_per_output_token - optimized_metrics.time_per_output_token) / basic_metrics.time_per_output_token * 100
+        
+        report_md = f"""# {config_dict['technique']} 对比实验完整报告
+
+## 实验概述
+**实验时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  
+**实验名称**: {config_dict['experiment_name']}  
+**优化技术**: {config_dict['technique']}  
+**批次级别**: {config_dict['batch_level']}  
+
+## 实验配置
+
+### 模型配置
+- **模型**: {config_dict['model']}
+- **设备**: {config_dict['device']}
+- **批次大小**: {config_dict['batch_size']}
+
+### 推理参数
+- **最大tokens**: {config_dict['max_tokens']}
+- **温度**: {config_dict['temperature']}
+- **Top-p**: {config_dict['top_p']}
+
+### 测试参数
+- **提示数量**: {config_dict['num_prompts']}
+- **预热迭代**: {config_dict['warmup_iterations']}
+- **测试迭代**: {config_dict['test_iterations']}
+
+"""
+        
+        if config_dict.get('quantization_config'):
+            import json
+            report_md += f"""### 量化配置
+```yaml
+{json.dumps(config_dict['quantization_config'], indent=2)}
+```
+
+"""
+        
+        report_md += f"""## 基础推理实验结果
+
+### 延迟指标
+- **总时间**: {basic_metrics.total_time:.3f}s
+- **平均延迟**: {basic_metrics.avg_latency*1000:.2f}ms
+- **P50延迟**: {basic_metrics.p50_latency*1000:.2f}ms
+- **P95延迟**: {basic_metrics.p95_latency*1000:.2f}ms
+- **P99延迟**: {basic_metrics.p99_latency*1000:.2f}ms
+- **首token时间**: {basic_metrics.time_to_first_token*1000:.2f}ms
+- **每输出token时间**: {basic_metrics.time_per_output_token*1000:.2f}ms
+
+### 吞吐量指标
+- **Tokens/秒**: {basic_metrics.tokens_per_second:.2f}
+- **请求/秒**: {basic_metrics.requests_per_second:.2f}
+
+### 内存使用
+- **GPU内存峰值**: {basic_metrics.gpu_memory_peak:.2f}MB
+- **GPU内存当前**: {basic_metrics.gpu_memory_used:.2f}MB
+- **CPU内存**: {basic_metrics.cpu_memory_used:.2f}MB
+
+## 优化推理实验结果
+
+### 延迟指标
+- **总时间**: {optimized_metrics.total_time:.3f}s
+- **平均延迟**: {optimized_metrics.avg_latency*1000:.2f}ms
+- **P50延迟**: {optimized_metrics.p50_latency*1000:.2f}ms
+- **P95延迟**: {optimized_metrics.p95_latency*1000:.2f}ms
+- **P99延迟**: {optimized_metrics.p99_latency*1000:.2f}ms
+- **首token时间**: {optimized_metrics.time_to_first_token*1000:.2f}ms
+- **每输出token时间**: {optimized_metrics.time_per_output_token*1000:.2f}ms
+
+### 吞吐量指标
+- **Tokens/秒**: {optimized_metrics.tokens_per_second:.2f}
+- **请求/秒**: {optimized_metrics.requests_per_second:.2f}
+
+### 内存使用
+- **GPU内存峰值**: {optimized_metrics.gpu_memory_peak:.2f}MB
+- **GPU内存当前**: {optimized_metrics.gpu_memory_used:.2f}MB
+- **CPU内存**: {optimized_metrics.cpu_memory_used:.2f}MB
+
+## 性能改进分析
+
+### 改进指标对比
+| 指标 | 基础推理 | 优化推理 | 改进 |
+|------|----------|----------|------|
+| 平均延迟 | {basic_metrics.avg_latency*1000:.2f}ms | {optimized_metrics.avg_latency*1000:.2f}ms | {latency_improvement:+.1f}% |
+| 吞吐量 | {basic_metrics.tokens_per_second:.2f} tokens/s | {optimized_metrics.tokens_per_second:.2f} tokens/s | {throughput_improvement:+.1f}% |
+| GPU内存峰值 | {basic_metrics.gpu_memory_peak:.2f}MB | {optimized_metrics.gpu_memory_peak:.2f}MB | {memory_improvement:+.1f}% |
+| 首token时间 | {basic_metrics.time_to_first_token*1000:.2f}ms | {optimized_metrics.time_to_first_token*1000:.2f}ms | {ttft_improvement:+.1f}% |
+| 每输出token时间 | {basic_metrics.time_per_output_token*1000:.2f}ms | {optimized_metrics.time_per_output_token*1000:.2f}ms | {tpot_improvement:+.1f}% |
+
+### 优化效果总结
+"""
+        
+        if throughput_improvement > 10:
+            report_md += f"- ✅ **显著性能提升**: {config_dict['technique']}技术显著提升了推理性能\n"
+        elif throughput_improvement > 0:
+            report_md += f"- ✅ **适度性能提升**: {config_dict['technique']}技术适度提升了推理性能\n"
+        else:
+            report_md += f"- ⚠️ **性能无明显提升**: 在当前测试场景下，{config_dict['technique']}优化效果不明显\n"
+        
+        if memory_improvement > 10:
+            report_md += f"- 💾 **显著内存节省**: 内存使用减少了{memory_improvement:.1f}%\n"
+        elif memory_improvement > 0:
+            report_md += f"- 💾 **适度内存节省**: 内存使用减少了{memory_improvement:.1f}%\n"
+        
+        if latency_improvement > 10:
+            report_md += f"- 🚀 **显著延迟降低**: 平均延迟降低了{latency_improvement:.1f}%\n"
+        elif latency_improvement > 0:
+            report_md += f"- 🚀 **适度延迟降低**: 平均延迟降低了{latency_improvement:.1f}%\n"
+        
+        report_md += f"""
+## 结论
+本次实验对比了基础推理与使用{config_dict['technique']}技术的优化推理性能。"""
+        
+        if throughput_improvement > 0 and memory_improvement > 0:
+            report_md += f"结果显示{config_dict['technique']}技术在提升推理速度和节省内存方面都有良好表现。"
+        elif throughput_improvement > 0:
+            report_md += f"结果显示{config_dict['technique']}技术主要在提升推理速度方面有良好表现。"
+        elif memory_improvement > 0:
+            report_md += f"结果显示{config_dict['technique']}技术主要在节省内存使用方面有良好表现。"
+        else:
+            report_md += f"在当前测试配置下，{config_dict['technique']}技术的优化效果有限，可能需要调整配置参数或在更大规模的测试中验证效果。"
+        
+        report_md += f"""
+
+---
+*报告生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
+"""
+        
+        # 保存完整对比报告
+        comparison_filename = f"comparison_experiment_{config_dict['batch_level']}_{config_dict['experiment_name']}.md"
+        comparison_filepath = os.path.join(self.config.output_dir, comparison_filename)
+        
+        try:
+            with open(comparison_filepath, 'w', encoding='utf-8') as f:
+                f.write(report_md)
+            print(f"完整对比实验报告已保存到: {comparison_filepath}")
+        except Exception as e:
+            print(f"保存对比实验报告失败: {e}")
     
     def get_model_info(self) -> Dict[str, Any]:
         """

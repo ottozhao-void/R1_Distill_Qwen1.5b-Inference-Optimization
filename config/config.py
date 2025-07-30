@@ -2,13 +2,15 @@
 配置模块 - Config
 
 该模块用来管理项目中的各项配置，包括模型路径、设备配置等。
+支持从YAML文件加载实验配置，每个优化技术有独立的配置文件。
 
 注意：本项目已配置为统一使用 DeepSeek-R1-Distill-Qwen-1.5B 模型，
-所有预设配置和默认配置都已更新为使用此模型，确保整个推理工作流的一致性。
+所有配置都已更新为使用此模型，确保整个推理工作流的一致性。
 """
 
 import os
-from typing import List, Optional
+import yaml
+from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
 
 
@@ -16,8 +18,13 @@ from dataclasses import dataclass, field
 class Config:
     """项目配置类"""
     
+    # 实验配置
+    experiment_name: str = "default"
+    technique: str = "PagedAttention"  # PagedAttention, Quantization
+    batch_level: str = "medium"  # small, medium, large
+    
     # 模型配置
-    model: str = "/data1/zhaofanghan/.cache/huggingface/hub/DeepSeek-R1-Distill-Qwen-1.5B"  # 默认使用小模型进行测试
+    model: str = "/data1/zhaofanghan/.cache/huggingface/hub/DeepSeek-R1-Distill-Qwen-1.5B"
     device: Optional[List[int]] = field(default_factory=lambda: [4])  # CUDA设备ID列表，None表示自动检测
     
     # 推理配置
@@ -35,6 +42,9 @@ class Config:
     output_dir: str = "results"
     save_results: bool = True
     
+    # 量化相关配置
+    quantization_config: Optional[Dict[str, Any]] = None
+    
     def __post_init__(self):
         """初始化后的处理"""
         if self.device is None:
@@ -45,9 +55,22 @@ class Config:
             else:
                 self.device = []
         
-        # 创建输出目录
-        if self.save_results and not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
+        # 根据batch_level调整batch_size
+        if self.batch_level == "small":
+            self.batch_size = min(self.batch_size, 2)
+            self.num_prompts = min(self.num_prompts, 5)
+        elif self.batch_level == "large":
+            self.batch_size = max(self.batch_size, 8)
+            self.num_prompts = max(self.num_prompts, 20)
+        
+        # 创建输出目录（根据技术类型）
+        if self.save_results:
+            technique_dir = os.path.join("results", self.technique)
+            if not os.path.exists(technique_dir):
+                os.makedirs(technique_dir)
+            # 只有在output_dir还是默认值时才更新
+            if self.output_dir == "results":
+                self.output_dir = technique_dir
     
     def get_tensor_parallel_size(self) -> int:
         """获取张量并行大小"""
@@ -67,29 +90,84 @@ class Config:
         return len(self.device) > 1 if self.device else False
 
 
-# 预定义的配置
-class ConfigPresets:
-    """预定义配置"""
+def load_config_from_yaml(config_path: str) -> Config:
+    """从YAML文件加载配置"""
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config_data = yaml.safe_load(f)
+        
+        # 创建Config对象
+        config = Config()
+        
+        # 更新配置字段
+        for key, value in config_data.items():
+            if hasattr(config, key):
+                setattr(config, key, value)
+        
+        # 手动调用__post_init__进行后处理
+        config.__post_init__()
+        
+        return config
+        
+    except Exception as e:
+        print(f"从YAML文件加载配置失败: {e}")
+        print("使用默认配置")
+        return Config()
+
+
+def save_config_to_yaml(config: Config, config_path: str):
+    """保存配置到YAML文件"""
+    try:
+        # 创建目录
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        
+        # 转换为字典
+        config_dict = {
+            'experiment_name': config.experiment_name,
+            'technique': config.technique,
+            'batch_level': config.batch_level,
+            'model': config.model,
+            'device': config.device,
+            'max_tokens': config.max_tokens,
+            'temperature': config.temperature,
+            'top_p': config.top_p,
+            'batch_size': config.batch_size,
+            'num_prompts': config.num_prompts,
+            'warmup_iterations': config.warmup_iterations,
+            'test_iterations': config.test_iterations,
+            'output_dir': config.output_dir,
+            'save_results': config.save_results,
+            'quantization_config': config.quantization_config
+        }
+        
+        with open(config_path, 'w', encoding='utf-8') as f:
+            yaml.dump(config_dict, f, default_flow_style=False, allow_unicode=True)
+        
+        print(f"配置已保存到: {config_path}")
+        
+    except Exception as e:
+        print(f"保存配置到YAML文件失败: {e}")
+
+
+def get_config_for_technique(technique: str, batch_level: str = "medium", 
+                           experiment_name: str = "default") -> Config:
+    """根据优化技术获取配置"""
+    config_dir = "config"
+    config_filename = f"{technique.lower()}_{batch_level}_{experiment_name}.yaml"
+    config_path = os.path.join(config_dir, technique, config_filename)
     
-    @staticmethod
-    def small_model_config() -> Config:
-        """小模型配置，用于快速测试"""
-        return Config(
-            model="/data1/zhaofanghan/.cache/huggingface/hub/DeepSeek-R1-Distill-Qwen-1.5B",
-            max_tokens=50,
-            num_prompts=5,
-            test_iterations=3
-        )
-    
-    @staticmethod
-    def large_model_config() -> Config:
-        """大模型配置，用于性能测试"""
-        return Config(
-            model="/data1/zhaofanghan/.cache/huggingface/hub/DeepSeek-R1-Distill-Qwen-1.5B",
-            max_tokens=200,
-            num_prompts=20,
-            test_iterations=10
-        )
+    if os.path.exists(config_path):
+        return load_config_from_yaml(config_path)
+    else:
+        # 创建默认配置
+        config = Config()
+        config.technique = technique
+        config.batch_level = batch_level
+        config.experiment_name = experiment_name
+        
+        # 保存默认配置
+        save_config_to_yaml(config, config_path)
+        return config
 
 
 def load_config_from_env() -> Config:

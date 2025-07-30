@@ -14,6 +14,9 @@ accelerate>=0.24.0
 # vLLM推理引擎
 vllm>=0.2.5
 
+# 量化支持
+bitsandbytes>=0.41.0
+
 # 数据处理和科学计算
 numpy>=1.24.0
 pandas>=2.0.0
@@ -24,9 +27,6 @@ psutil>=5.9.0
 # 配置和工具
 pyyaml>=6.0
 tqdm>=4.65.0
-
-# 可选的量化支持
-# bitsandbytes>=0.41.0
 
 # 可选的Flash Attention支持（如果支持）
 # flash-attn>=2.3.0

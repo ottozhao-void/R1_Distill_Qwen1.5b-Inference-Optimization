@@ -1,0 +1,16 @@
+batch_level: small
+batch_size: 4
+device:
+- 4
+experiment_name: demo
+max_tokens: 100
+model: /data1/zhaofanghan/.cache/huggingface/hub/DeepSeek-R1-Distill-Qwen-1.5B
+num_prompts: 10
+output_dir: results/PagedAttention
+quantization_config: null
+save_results: true
+technique: 量化
+temperature: 0.8
+test_iterations: 5
+top_p: 0.95
+warmup_iterations: 3

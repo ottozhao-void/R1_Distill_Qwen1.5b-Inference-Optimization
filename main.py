@@ -18,8 +18,9 @@ import transformers
 # 添加当前目录到路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from config.config import Config, ConfigPresets, load_config_from_env
+from config.config import Config, load_config_from_yaml, get_config_for_technique
 from inference.inference_paged_attention import InferenceOnPagedAttention
+from inference.inference_quantization import InferenceOnQuantization
 
 
 def parse_arguments():
@@ -28,6 +29,26 @@ def parse_arguments():
         description="LLM推理优化性能测试",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    
+    # 优化技术选择
+    parser.add_argument("--technique", type=str, 
+                       choices=["PagedAttention", "量化"], 
+                       default="PagedAttention",
+                       help="选择优化技术")
+    
+    # 批次级别
+    parser.add_argument("--batch-level", type=str,
+                       choices=["small", "medium", "large"],
+                       default="medium",
+                       help="批次级别")
+    
+    # 实验名称
+    parser.add_argument("--experiment-name", type=str, default="default",
+                       help="实验名称")
+    
+    # 配置文件路径
+    parser.add_argument("--config", type=str, default=None,
+                       help="YAML配置文件路径")
     
     # 推理配置
     parser.add_argument("--max-tokens", type=int, default=None,
@@ -46,10 +67,6 @@ def parse_arguments():
                        help="测试迭代次数")
     parser.add_argument("--warmup-iterations", type=int, default=None,
                        help="预热迭代次数")
-    
-    # 预设配置
-    parser.add_argument("--preset", type=str, choices=["small", "large"],
-                       help="使用预设配置")
     
     # 运行模式
     parser.add_argument("--method", type=str, 
@@ -93,16 +110,18 @@ def load_prompts_from_file(filepath: str) -> List[str]:
 def create_config_from_args(args) -> Config:
     """根据命令行参数创建配置"""
     
-    # 使用预设配置
-    if args.preset:
-        if args.preset == "small":
-            config = ConfigPresets.small_model_config()
-        elif args.preset == "large":
-            config = ConfigPresets.large_model_config()
+    # 从指定配置文件加载
+    if args.config:
+        config = load_config_from_yaml(args.config)
     else:
-        # 从环境变量加载配置或使用默认配置
-        config = load_config_from_env()
+        # 根据技术和批次级别获取配置
+        config = get_config_for_technique(
+            technique=args.technique,
+            batch_level=args.batch_level,
+            experiment_name=args.experiment_name
+        )
     
+    # 用命令行参数覆盖配置
     if args.max_tokens:
         config.max_tokens = args.max_tokens
     
@@ -153,10 +172,14 @@ def main():
     config = create_config_from_args(args)
     
     print(f"\n📋 测试配置:")
+    print(f"  优化技术: {config.technique}")
+    print(f"  批次级别: {config.batch_level}")
+    print(f"  实验名称: {config.experiment_name}")
     print(f"  模型: {config.model}")
     print(f"  设备: {config.device}")
     print(f"  最大tokens: {config.max_tokens}")
     print(f"  温度: {config.temperature}")
+    print(f"  批次大小: {config.batch_size}")
     print(f"  测试迭代: {config.test_iterations}")
     print(f"  输出目录: {config.output_dir}")
     
@@ -173,15 +196,24 @@ def main():
     
     
     try:
-        # 创建推理模块
-        inference_module = InferenceOnPagedAttention(config)
+        # 根据优化技术创建推理模块
+        if config.technique == "PagedAttention":
+            inference_module = InferenceOnPagedAttention(config)
+        elif config.technique == "量化":
+            inference_module = InferenceOnQuantization(config)
+        else:
+            raise ValueError(f"不支持的优化技术: {config.technique}")
         
         if args.benchmark_memory:
             # 内存效率基准测试
-            batch_sizes = [int(x.strip()) for x in args.batch_sizes.split(",")]
-            print(f"\n🧪 开始内存效率基准测试...")
-            results = inference_module.benchmark_memory_efficiency(batch_sizes)
-            print(f"✅ 内存基准测试完成")
+            if hasattr(inference_module, 'benchmark_memory_efficiency'):
+                batch_sizes = [int(x.strip()) for x in args.batch_sizes.split(",")]
+                print(f"\n🧪 开始内存效率基准测试...")
+                results = inference_module.benchmark_memory_efficiency(batch_sizes)
+                print(f"✅ 内存基准测试完成")
+            else:
+                print(f"⚠️ {config.technique} 不支持内存基准测试")
+                return
             
         else:
             # 常规对比测试
