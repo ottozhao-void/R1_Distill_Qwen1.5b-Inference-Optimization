@@ -348,10 +348,19 @@ class InferenceOnPagedAttention(InferenceModule):
         print(f"  ✓ 基础推理 (transformers): 平均延迟 {basic_metrics.avg_latency*1000:.2f}ms")
         print(f"  ✓ 优化推理 (vLLM+PagedAttention): 平均延迟 {optimized_metrics.avg_latency*1000:.2f}ms")
         
-        # 计算改进
-        latency_improvement = (basic_metrics.avg_latency - optimized_metrics.avg_latency) / basic_metrics.avg_latency * 100
-        throughput_improvement = (optimized_metrics.tokens_per_second - basic_metrics.tokens_per_second) / basic_metrics.tokens_per_second * 100
-        memory_improvement = (basic_metrics.gpu_memory_peak - optimized_metrics.gpu_memory_peak) / basic_metrics.gpu_memory_peak * 100
+        # 计算改进 (带除零保护)
+        latency_improvement = 0
+        throughput_improvement = 0
+        memory_improvement = 0
+        
+        if basic_metrics.avg_latency > 0:
+            latency_improvement = (basic_metrics.avg_latency - optimized_metrics.avg_latency) / basic_metrics.avg_latency * 100
+        
+        if basic_metrics.tokens_per_second > 0:
+            throughput_improvement = (optimized_metrics.tokens_per_second - basic_metrics.tokens_per_second) / basic_metrics.tokens_per_second * 100
+        
+        if basic_metrics.gpu_memory_peak > 0:
+            memory_improvement = (basic_metrics.gpu_memory_peak - optimized_metrics.gpu_memory_peak) / basic_metrics.gpu_memory_peak * 100
         
         print(f"\nPagedAttention优化效果:")
         if latency_improvement > 0:

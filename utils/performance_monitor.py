@@ -76,7 +76,8 @@ class PerformanceMetrics:
 class PerformanceMonitor:
     """性能监测器"""
     
-    def __init__(self):
+    def __init__(self, device_id: Optional[int] = None):
+        self.device_id = device_id
         self.reset()
     
     def reset(self):
@@ -91,7 +92,16 @@ class PerformanceMonitor:
         
         # GPU内存监测
         if torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats()
+            try:
+                if self.device_id is not None:
+                    torch.cuda.set_device(self.device_id)
+                    torch.cuda.reset_peak_memory_stats(self.device_id)
+                else:
+                    torch.cuda.reset_peak_memory_stats()
+            except RuntimeError as e:
+                # 如果设备尚未初始化，先跳过重置，稍后在实际使用时再初始化
+                print(f"GPU内存统计重置延迟：{e}")
+                pass
     
     @contextmanager
     def measure_batch(self):
@@ -101,7 +111,12 @@ class PerformanceMonitor:
         # 记录开始时的GPU内存
         gpu_memory_start = 0.0
         if torch.cuda.is_available():
-            gpu_memory_start = torch.cuda.memory_allocated() / 1024**2
+            try:
+                device = self.device_id if self.device_id is not None else torch.cuda.current_device()
+                gpu_memory_start = torch.cuda.memory_allocated(device) / 1024**2
+            except RuntimeError:
+                # 设备可能还未初始化，使用默认值
+                gpu_memory_start = 0.0
         
         try:
             yield
@@ -111,9 +126,14 @@ class PerformanceMonitor:
             self.latencies.append(batch_time)
             
             if torch.cuda.is_available():
-                current_memory = torch.cuda.memory_allocated() / 1024**2
-                peak_memory = torch.cuda.max_memory_allocated() / 1024**2
-                self.gpu_memory_peak = max(self.gpu_memory_peak, peak_memory)
+                try:
+                    device = self.device_id if self.device_id is not None else torch.cuda.current_device()
+                    current_memory = torch.cuda.memory_allocated(device) / 1024**2
+                    peak_memory = torch.cuda.max_memory_allocated(device) / 1024**2
+                    self.gpu_memory_peak = max(self.gpu_memory_peak, peak_memory)
+                except RuntimeError:
+                    # 设备可能还未初始化，使用当前记录的峰值
+                    pass
     
     @contextmanager 
     def measure_first_token(self):
@@ -129,7 +149,15 @@ class PerformanceMonitor:
         """开始监测"""
         self.start_time = time.time()
         if torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats()
+            try:
+                if self.device_id is not None:
+                    torch.cuda.set_device(self.device_id)
+                    torch.cuda.reset_peak_memory_stats(self.device_id)
+                else:
+                    torch.cuda.reset_peak_memory_stats()
+            except RuntimeError:
+                # 设备可能还未初始化，稍后再处理
+                pass
     
     def stop_monitoring(self):
         """停止监测"""
@@ -179,7 +207,11 @@ class PerformanceMonitor:
     def _get_current_gpu_memory(self) -> float:
         """获取当前GPU内存使用 (MB)"""
         if torch.cuda.is_available():
-            return torch.cuda.memory_allocated() / 1024**2
+            try:
+                device = self.device_id if self.device_id is not None else torch.cuda.current_device()
+                return torch.cuda.memory_allocated(device) / 1024**2
+            except RuntimeError:
+                return 0.0
         return 0.0
     
     def _get_cpu_memory(self) -> float:

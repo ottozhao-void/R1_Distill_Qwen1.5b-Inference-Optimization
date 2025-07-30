@@ -21,7 +21,11 @@ class InferenceModule(ABC):
             config: 配置对象
         """
         self.config = config
-        self.performance_monitor = PerformanceMonitor()
+        # 从config中获取设备ID用于GPU内存监测
+        device_id = None
+        if config.device and len(config.device) > 0 and config.device[0] != 'cpu':
+            device_id = config.device[0]
+        self.performance_monitor = PerformanceMonitor(device_id=device_id)
         self.is_initialized = False
     
     @abstractmethod
